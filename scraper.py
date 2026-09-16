@@ -3,100 +3,106 @@ import os
 import requests
 from datetime import datetime
 
-# Masukkan SERPAPI_KEY di GitHub Secrets jika pakai SerpApi
-SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
+# Mengambil key dari GitHub Secrets
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
 
-def fetch_google_jobs(keyword="lowongan kerja ketapang"):
-    """Menarik data lowongan dari Google Jobs via SerpApi"""
-    if not SERPAPI_KEY:
-        print("PERINGATAN: SERPAPI_KEY tidak diisi. Menggunakan data simulasi fallback.")
-        return get_mock_data()
+def fetch_jsearch_jobs(keyword="lowongan kerja ketapang"):
+    """Menarik data lowongan dari JSearch API (RapidAPI)"""
+    if not RAPIDAPI_KEY:
+        print("PERINGATAN: RAPIDAPI_KEY tidak diisi. Proses dihentikan.")
+        return []
 
-    url = f"https://serpapi.com/search.json?engine=google_jobs&q={keyword}&hl=id&gl=id&api_key={SERPAPI_KEY}"
+    url = "https://jsearch.p.rapidapi.com/search"
+    
+    # Parameter pencarian JSearch
+    querystring = {
+        "query": keyword,
+        "page": "1",
+        "num_pages": "1", # Tarik 1 halaman pertama (biasanya isi ~10-15 lowongan)
+        "country": "id",
+        "date_posted": "all" # Bisa diubah ke "today", "3days", "week"
+    }
+
+    headers = {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
+    }
+
+    print("Fetching data dari JSearch API...")
+    
     try:
-        response = requests.get(url, timeout=15)
+        response = requests.get(url, headers=headers, params=querystring, timeout=15)
         if response.status_code == 200:
-            data = response.json()
+            data = response.json().get("data", [])
             jobs = []
-            for item in data.get("jobs_results", []):
-                # Ambil link lamaran asli (direct redirect)
-                apply_link = "#"
-                if item.get("apply_options"):
-                    apply_link = item["apply_options"][0].get("link", "#")
-                elif item.get("related_links"):
-                    apply_link = item["related_links"][0].get("link", "#")
+            
+            for item in data:
+                # Format lokasi (Kota, Provinsi)
+                city = item.get("job_city") or ""
+                state = item.get("job_state") or ""
+                location = f"{city}, {state}".strip(", ")
+                if not location:
+                    location = item.get("job_location", "Kalimantan Barat")
 
+                # Memastikan ada deskripsi dan memotongnya agar tidak terlalu panjang
+                desc = item.get("job_description") or ""
+                if len(desc) > 200:
+                    desc = desc[:200] + "..."
+
+                # Mapping format JSON JSearch ke format standar kita
                 jobs.append({
                     "id": item.get("job_id", ""),
-                    "title": item.get("title", ""),
-                    "company": item.get("company_name", ""),
-                    "location": item.get("location", "Ketapang, Kalimantan Barat"),
-                    "via": item.get("via", "Google Jobs"),
-                    "posted_at": item.get("detected_extensions", {}).get("posted_at", "Terbaru"),
-                    "description": item.get("description", "")[:180] + "...",
-                    "original_url": apply_link
+                    "title": item.get("job_title", ""),
+                    "company": item.get("employer_name", ""),
+                    "location": location,
+                    "via": item.get("job_publisher", "JSearch"), # Misal: LinkedIn, Glassdoor, ZipRecruiter
+                    "posted_at": item.get("job_posted_at_datetime_utc", "")[:10], # Ambil tanggalnya saja (YYYY-MM-DD)
+                    "description": desc,
+                    "original_url": item.get("job_apply_link") or item.get("job_google_link", "#")
                 })
             return jobs
+        else:
+            print(f"Error API: {response.status_code} - {response.text}")
     except Exception as e:
-        print(f"Error fetching Google Jobs: {e}")
+        print(f"Error saat request ke JSearch: {e}")
     
-    return get_mock_data()
+    return []
 
 def filter_ketapang(job_list):
-    """Filter ketat agar hanya menampilkan lowongan Ketapang/Kalbar"""
+    """Memastikan hanya mengambil lowongan yang berlokasi di Ketapang atau Kalbar"""
     keywords = ["ketapang", "kalimantan barat", "kalbar"]
     filtered = []
     
     for job in job_list:
         loc = job.get("location", "").lower()
         title = job.get("title", "").lower()
+        desc = job.get("description", "").lower()
         
-        # Masukkan jika lokasi mengandung kata kunci Ketapang / Kalbar
-        if any(kw in loc for kw in keywords) or "ketapang" in title:
+        # Validasi: Jika kata kunci ada di Lokasi, Judul, ATAU Deskripsi
+        if any(kw in loc for kw in keywords) or any(kw in title for kw in keywords) or any(kw in desc for kw in keywords):
             filtered.append(job)
             
     return filtered
 
-def get_mock_data():
-    """Data cadangan jika API key belum terpasang"""
-    return [
-        {
-            "id": "mock-1",
-            "title": "Staff Administrasi & Keuangan",
-            "company": "PT Sawit Makmur Ketapang",
-            "location": "Ketapang, Kalimantan Barat",
-            "via": "JobStreet",
-            "posted_at": "1 hari yang lalu",
-            "description": "Dibutuhkan Staff Admin Keuangan untuk operasional kebun di wilayah Kabupaten Ketapang...",
-            "original_url": "https://www.jobstreet.co.id"
-        },
-        {
-            "id": "mock-2",
-            "title": "Supervisor Lapangan Mining",
-            "company": "PT Borneo Mineral",
-            "location": "Ketapang, Kalbar",
-            "via": "Glints",
-            "posted_at": "3 hari yang lalu",
-            "description": "Memiliki pengalaman minimal 2 tahun di bidang pengawasan tambang lokasi Ketapang...",
-            "original_url": "https://glints.com"
-        }
-    ]
-
 def main():
-    print("Mulai mengambil data lowongan...")
-    raw_jobs = fetch_google_jobs("lowongan kerja ketapang")
+    # 1. Tarik dari API
+    raw_jobs = fetch_jsearch_jobs("lowongan kerja ketapang kalimantan barat")
+    
+    # 2. Filter data
     ketapang_jobs = filter_ketapang(raw_jobs)
     
+    # 3. Susun Output JSON
     output = {
         "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M WIB"),
         "total": len(ketapang_jobs),
         "jobs": ketapang_jobs
     }
     
+    # 4. Tulis ke vacancy.json
     with open("vacancy.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
         
-    print(f"Selesai! {len(ketapang_jobs)} lowongan disimpan di vacancy.json")
+    print(f"Sukses! {len(ketapang_jobs)} lowongan disimpan ke vacancy.json")
 
 if __name__ == "__main__":
     main()
