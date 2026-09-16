@@ -3,13 +3,13 @@ name: Auto Update Ketapang Vacancies
 on:
   schedule:
     - cron: '0 0,12 * * *'
-  workflow_dispatch: # Ini adalah tombol "Force Run" (Run workflow) di GitHub Actions UI
+  workflow_dispatch: # Ini memunculkan tombol "Run workflow" (Force Run) di GitHub UI
 
 jobs:
   scrape-and-update:
     runs-on: ubuntu-latest
     
-    # INI SOLUSI ERROR 403: Memberikan izin bot untuk Push (Write)
+    # INI SOLUSI ERROR 403: Mengizinkan GitHub Actions bot untuk push/write ke repo
     permissions:
       contents: write 
       
@@ -25,9 +25,7 @@ jobs:
       - name: Install Dependencies
         run: pip install requests
 
-      - name: Run Scraper (JSearch API)
-        env:
-          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+      - name: Run Scraper (Free Internal API)
         run: python scraper.py
 
       - name: Commit & Push Update JSON
@@ -35,6 +33,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add vacancy.json
-          # Commit hanya jika ada perubahan data
-          git diff --quiet && git diff --staged --quiet || git commit -m "auto-update: refresh lowongan Ketapang via JSearch"
+          git diff --quiet && git diff --staged --quiet || git commit -m "auto-update: refresh lowongan Ketapang via Web Scraper"
           git push
